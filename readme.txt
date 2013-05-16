@@ -66,6 +66,9 @@ Your votes really make a difference! Thanks.
 
 == Changelog ==
 
+= 2.0.0 =
+* [Updated] Updated all code to now be compatible with ACF v4 and above. If using v3.5.8.2 or below, please do not use this version, instead continue to use v1.0.4
+
 = 1.0.4 =
 * Fixed issue where post_content, post_title and post_excerpt were not saving
 * Fixed JS bug where the div would not AJAX update after the seccond save

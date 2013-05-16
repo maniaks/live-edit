@@ -4,7 +4,7 @@
 Plugin Name: Live Edit
 Plugin URI: http://www.elliotcondon.com/
 Description: Edit the title, content and any ACF fields from the front end of your website!
-Version: 1.0.4
+Version: 2.0.0
 Author: Elliot Condon
 Author URI: http://www.elliotcondon.com/
 License: GPL
@@ -18,6 +18,7 @@ class live_edit
 	var $dir,
 		$path,
 		$version,
+		$acf_version,
 		$data;
 	
 	
@@ -35,7 +36,7 @@ class live_edit
 		// vars
 		$this->dir = plugins_url('',__FILE__);
 		$this->path = plugin_dir_path(__FILE__);
-		$this->version = '1.0.4';
+		$this->version = '2.0.0';
 		$this->defaults = array(
 			'panel_width'	=>	600,
 		);
@@ -78,9 +79,11 @@ class live_edit
 		if( is_user_logged_in() )
 		{
 			// actions
-			add_action('admin_menu', array($this,'admin_menu'));
 			add_action('admin_head', array($this,'admin_head'));
-			add_action('wp_print_scripts', array($this,'wp_print_scripts'));
+			add_action('admin_menu', array($this,'admin_menu'));
+			
+			
+			add_action('wp_enqueue_scripts', array($this,'wp_enqueue_scripts'));
 			add_action('wp_head', array($this,'wp_head'));
 			add_action('wp_footer', array($this,'wp_footer'));
 			add_action('wp_ajax_live_edit_update_width', array($this, 'ajax_update_width'));
@@ -101,6 +104,7 @@ class live_edit
 		echo '<style type="text/css">#menu-settings a[href="options-general.php?page=live-edit-panel"] { display:none; }</style>';
 	}
 	
+	
 	/*
 	*  admin_menu
 	*
@@ -111,59 +115,100 @@ class live_edit
 	
 	function admin_menu()
 	{
+		global $pagenow;
+		
 		$slug = add_options_page(__("Live Edit Panel",'le'), __("Live Edit Panel",'le'), 'edit_posts', 'live-edit-panel', array($this, 'view_panel'));
 		
+		
+		if( $pagenow == 'options-general.php' && isset($_GET['page']) && $_GET['page'] == 'live-edit-panel')
+		{
+			add_action('admin_enqueue_scripts', array($this, 'page_admin_enqueue_scripts'));
+			add_action('admin_head', array($this, 'page_admin_head'));
+		}
+	}
+	
+	
+	/*
+	*  admin_enqueue_scripts
+	*
+	*  @description: run after post query but before any admin script / head actions. A good place to register all actions.
+	*  @since: 3.6
+	*  @created: 26/01/13
+	*/
+	
+	function page_admin_enqueue_scripts()
+	{
 		// actions
-		add_action('admin_print_scripts-'.$slug, array($this, 'admin_print_scripts_page'));
-		add_action('admin_print_styles-'.$slug, array($this, 'admin_print_styles_page'));
-		add_action('admin_head-'.$slug, array($this,'admin_head_page'));
+		do_action('acf/input/admin_enqueue_scripts');
 	}
 	
-	function admin_print_scripts_page()
+	
+	/*
+	*  save_post
+	*
+	*  {description}
+	*
+	*  @since: 4.0.3
+	*  @created: 16/05/13
+	*/
+	
+	function save_post()
 	{
-  		do_action('acf_print_scripts-input');
+		// validate
+		if( !isset($_POST['post_id']) )
+		{
+			return;
+		}
+		
+		
+		// vars
+		$post_id = $_POST['post_id'];
+		$post_data = array();
+		
+		
+		foreach( array('post_title', 'post_content', 'post_excerpt') as $v )
+		{
+			if( isset($_POST['fields'][ $v ]) )
+			{
+				$post_data[ $v ] = $_POST['fields'][ $v ];
+				
+				unset( $_POST['fields'][ $v ] );	
+			}
+		}
+		
+		
+		// update post
+		if( !empty($post_data) )
+		{
+			$post_data['ID'] = $post_id;
+			wp_update_post( $post_data );
+		}
+		
+		
+		// save custom fields
+		do_action('acf/save_post', $post_id);
+		
+		
+		// set var
+		$this->data['save_post'] = true;
+		
 	}
 	
-	function admin_print_styles_page()
-	{
-		do_action('acf_print_styles-input');
-	}
 	
-	function admin_head_page()
+	/*
+	*  page_admin_head
+	*
+	*  @description: 
+	*  @since: 3.6
+	*  @created: 17/03/13
+	*/
+	
+	function page_admin_head()
 	{	
 		// save
-		if( isset($_POST['post_id']) )
+		if( isset($_POST['nonce']) && wp_verify_nonce($_POST['nonce'], 'live-edit') )
 		{
-			$post_id = $_POST['post_id'];
-			
-			
-			// save post title
-			if( isset($_POST['post_title']) || isset($_POST['post_content']) || isset($_POST['post_excerpt']) )
-			{
-				$my_post = array();
-				$my_post['ID'] = $post_id;
-				
-				if( isset($_POST['post_title']) )
-				{
-					$my_post['post_title'] = $_POST['post_title'];
-				}
-				if( isset($_POST['post_content']) )
-				{
-					$my_post['post_content'] = $_POST['post_content'];
-				}
-				if( isset($_POST['post_excerpt']) )
-				{
-					$my_post['post_excerpt'] = $_POST['post_excerpt'];
-				}
-				
-				wp_update_post( $my_post );
-			}
-			
-			  
-			// save acf fields
-			do_action('acf_save_post', $post_id);
-			
-			$this->data['save_post'] = true;
+			$this->save_post();
 		}
 		
 		
@@ -185,23 +230,23 @@ class live_edit
 	
 		// Javascript
 		echo '<script type="text/javascript" src="'.$this->dir.'/js/functions.admin.js?ver=' . $this->version . '" ></script>';
-		echo '<script type="text/javascript">acf.post_id = ' . $options['post_id'] . '; acf.nonce = "' . wp_create_nonce( 'acf_nonce' ) . '";</script>';
 		
 		
-		// add user js + css
-		do_action('acf_head-input');
+		do_action('acf/input/admin_head');
+		
+		
 	}
 	
 	
 	/*
-	*  wp_print_scripts
+	*  wp_enqueue_scripts
 	*
 	*  @description:
 	*  @since 1.0.0
 	*  @created: 25/07/12
 	*/
 	
-	function wp_print_scripts() {
+	function wp_enqueue_scripts() {
 		
 		wp_enqueue_script(array(
 			'jquery',
@@ -292,106 +337,6 @@ class live_edit
 	
 	
 	/*
-	*  render_fields_for_input
-	*
-	*  @description: slightly different from acf's render_fields_for_input
-	*  @since 3.1.6
-	*  @created: 23/06/12
-	*/
-	
-	function render_fields_for_input($fields)
-	{
-		global $acf;
-		
-		
-		// create fields
-		if($fields)
-		{
-			foreach($fields as $field)
-			{
-				// if they didn't select a type, skip this field
-				if(!$field['type'] || $field['type'] == 'null') continue;
-				
-				$required_class = "";
-				$required_label = "";
-				
-				if($field['required'] == "1")
-				{
-					$required_class = ' required';
-					$required_label = ' <span class="required">*</span>';
-				}
-				
-				echo '<div id="acf-' . $field['name'] . '" class="field field-' . $field['type'] . ' field-'.$field['key'] . $required_class . '">';
-
-					echo '<p class="label">';
-						echo '<label for="fields[' . $field['key'] . ']">' . $field['label'] . $required_label . '</label>';
-						echo $field['instructions'];
-					echo '</p>';
-					
-					if( $field['name'] != 'post_title' && $field['name'] != 'post_content' && $field['name'] != 'post_excerpt' )
-					{
-						$field['name'] = 'fields[' . $field['key'] . ']';
-					}
-
-					$acf->create_field($field);
-				
-				echo '</div>';
-				
-			}
-			// foreach($fields as $field)
-		}
-		// if($fields)
-		
-	}
-	
-	
-	/*
-	*  get_field_object
-	*
-	*  @description: slightly different from acf's get_field_object
-	*  @since 3.1.6
-	*  @created: 23/06/12
-	*/
-	
-	function get_field_object($field_name, $post_id)
-	{
-		global $acf; 
-		 
-		
-		// allow for option == options
-		if( $post_id == "option" )
-		{
-			$post_id = "options";
-		}
-		
-		 
-		// get key
-		$field_key = "";
-		if( is_numeric($post_id) )
-		{
-			$field_key = get_post_meta($post_id, '_' . $field_name, true); 
-		}
-		else
-		{
-			$field_key = get_option('_' . $post_id . '_' . $field_name); 
-		}
-	
-		
-		// default return vaue
-		$field = false;
-		
-		if($field_key != "") 
-		{ 
-			// we can load the field properly! 
-			$field = $acf->get_acf_field($field_key); 
-		} 
-		
-
-		return $field; 
-	}
-	
-	
-	/*
 	*  render_live_edit_panel
 	*
 	*  @description: 
@@ -441,6 +386,7 @@ class live_edit
 						'name' => 'post_title',
 						'value' => get_post_field('post_title', $options['post_id']),
 						'type'	=>	'text',
+						'required' => 1
 					);
 				}
 				elseif( $field_name == "post_content" ) // post_content
@@ -465,13 +411,14 @@ class live_edit
 				}
 				else // acf field
 				{
-					$field = $this->get_field_object( $field_name, $options['post_id'] );
-					$field['value'] = $acf->get_value( $options['post_id'], $field ); 
+					$field = get_field_object( $field_name, $options['post_id'], array( 'load_value' => false, 'format_value' => false ));
 				}
 				
-				$field = apply_filters('acf_load_field', $field);
 				
-				$fields[$k] = $field;
+				// load defualts (for post_title, etc)
+				$field = apply_filters('acf/load_field_defaults', $field);
+				
+				$fields[ $k ] = $field;
 			}
 		}
 	
@@ -489,6 +436,7 @@ class live_edit
 	
 		<div style="display:none;">
 			<input type="hidden" name="post_id" value="<?php echo $options['post_id']; ?>" />
+			<input type="hidden" name="nonce" value="<?php echo wp_create_nonce( 'live-edit' ); ?>" />
 		</div>
 		<div class="metabox-holder" id="poststuff">
 				
@@ -497,7 +445,11 @@ class live_edit
 			<div id="post-body-content">
 				<div class="acf_postbox">
 				
-					<?php $this->render_fields_for_input( $fields, $options['post_id'] ); ?>	
+					<?php
+					
+					do_action('acf/create_fields', $fields, $options['post_id']);
+					
+					?>	
 									
 					<div id="field-save">
 						<ul class="hl clearfix">
@@ -544,42 +496,6 @@ class live_edit
 
 	}
 	
-	/*
-	*  ajax_save_post
-	*
-	*  @description: 
-	*  @created: 8/09/12
-	*/
-	
-	function ajax_save_post()
-	{
-		global $acf;
-		
-		
-		// validate
-		if( !isset($_POST['fields']) )
-		{
-			wp_die("0");
-		}
-		
-
-		// loop through and save
-		if( $_POST['fields'] )
-		{
-			foreach( $_POST['fields'] as $key => $value )
-			{
-				// get field
-				$field = $acf->get_acf_field($key);
-				
-				$acf->update_value($post_id, $field, $value);
-			}
-			// foreach($fields as $key => $value)
-		}
-		// if($fields)
-		
-		
-		wp_die("1");
-	}
 }
 
 
@@ -600,12 +516,8 @@ function live_edit( $fields = false, $post_id = false )
 	}
 	
 	
-	// global post_id
-	if( !$post_id )
-	{
-		global $post;
-		$post_id = $post->ID;
-	}
+	// filter post_id
+	$post_id = acf_filter_post_id( $post_id );
 	
 	
 	// turn array into string
@@ -622,6 +534,8 @@ function live_edit( $fields = false, $post_id = false )
 	// build atts
 	$atts = ' data-live_edit-fields="' . $fields . '" data-live_edit-post_id="' . $post_id . '" ';
 	
+	
+	// echo
 	echo $atts;
 	
 }
