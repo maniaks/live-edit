@@ -5,7 +5,7 @@
 *--------------------------------------------------------------------------------------------*/
 
 html.live-edit-active {
-	overflow: hidden;	
+	/*overflow: hidden;*/	
 }
 
 html.live-edit-active body {
@@ -17,7 +17,7 @@ html.live-edit-active body {
 }
 
 .live-edit-button {	
-	position: absolute;
+	/*position: absolute;*/
 	top: 0;
 	right: 0;
 	
